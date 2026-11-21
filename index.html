@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>🧱 테트리스 모바일 — WebApp01</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧱</text></svg>" />
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: #111827;
+      --border: #1e293b;
+      --fg: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-2: #818cf8;
+      --danger: #f43f5e;
+      --ok: #22c55e;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg); color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+      overscroll-behavior: none;
+      touch-action: manipulation;
+    }
+    .app {
+      max-width: 440px;
+      margin: 0 auto;
+      padding: 12px 12px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 100dvh;
+    }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .title { font-size: 17px; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+    .btn {
+      border: 1px solid var(--border); background: var(--panel); color: var(--fg);
+      border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn.primary { background: var(--accent); color: #0b1120; border-color: var(--accent); }
+    .btn.ok { background: rgba(34,197,94,0.16); color: #4ade80; border-color: rgba(34,197,94,0.4); }
+
+    /* Game Stage */
+    .stage {
+      display: grid;
+      grid-template-columns: 1fr 104px;
+      gap: 10px;
+      align-items: start;
+    }
+    .board-wrap {
+      position: relative;
+      background: #020617;
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 1 / 2;
+      width: 100%;
+      touch-action: none;
+    }
+    #board {
+      width: 100%; height: 100%; display: block;
+    }
+    .overlay-msg {
+      position: absolute; inset: 0;
+      background: rgba(2, 6, 23, 0.78);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; text-align: center; padding: 16px;
+    }
+    .overlay-msg.hidden { display: none; }
+    .overlay-msg h2 { margin: 0; font-size: 20px; }
+    .overlay-msg p { margin: 0; font-size: 12.5px; color: var(--muted); }
+
+    .side-col {
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .stat-card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 8px 10px; text-align: center;
+    }
+    .stat-label { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-val { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 2px; }
+    #nextCanvas { width: 72px; height: 72px; display: block; margin: 4px auto 0; }
+
+    /* Mobile Touch Controls */
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .ctrl-btn {
+      background: var(--panel); border: 1px solid var(--border); color: var(--fg);
+      border-radius: 12px; height: 52px; font-size: 18px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+      cursor: pointer; user-select: none; touch-action: manipulation;
+    }
+    .ctrl-btn:active { background: #1e293b; transform: scale(0.96); }
+    .ctrl-btn.wide { grid-column: span 2; font-size: 14px; }
+    .ctrl-btn.drop { background: rgba(56,189,248,0.14); border-color: rgba(56,189,248,0.45); color: var(--accent); }
+    .ctrl-btn.rotate { background: rgba(129,140,248,0.16); border-color: rgba(129,140,248,0.45); color: #a5b4fc; }
+
+    /* Daily Notification Panel */
+    .noti-card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 12px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .noti-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+    }
+    .noti-title { font-size: 13px; font-weight: 700; }
+    .noti-row {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted);
+    }
+    .time-input {
+      background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 8px; font-size: 12px;
+    }
+    .noti-status { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="title">🧱 테트리스 모바일</div>
+      <div style="display:flex; gap:6px;">
+        <button id="pauseBtn" class="btn">일시정지</button>
+        <button id="restartBtn" class="btn primary">새 게임</button>
+      </div>
+    </header>
+
+    <section class="stage">
+      <div class="board-wrap" id="boardWrap">
+        <canvas id="board" width="240" height="480"></canvas>
+        <div id="overlay" class="overlay-msg">
+          <h2 id="overlayTitle">🧱 TETRIS</h2>
+          <p id="overlayDesc">스와이프 또는 하단 버튼으로 조작하세요.<br/>PC: 방향키 · ↑ 회전 · Space 드롭</p>
+          <button id="startBtn" class="btn primary" style="padding:10px 22px; font-size:14px;">게임 시작</button>
+        </div>
+      </div>
+
+      <aside class="side-col">
+        <div class="stat-card">
+          <div class="stat-label">NEXT</div>
+          <canvas id="nextCanvas" width="80" height="80"></canvas>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">SCORE</div>
+          <div id="scoreVal" class="stat-val">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">BEST</div>
+          <div id="bestVal" class="stat-val" style="color:var(--accent);">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">LEVEL · LINES</div>
+          <div id="levelVal" class="stat-val" style="font-size:15px;">1 · 0</div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- Tactile Mobile Controls -->
+    <section class="controls" aria-label="게임 조작 버튼">
+      <button class="ctrl-btn" id="btnLeft" aria-label="왼쪽">◀</button>
+      <button class="ctrl-btn" id="btnDown" aria-label="아래로">▼</button>
+      <button class="ctrl-btn" id="btnRight" aria-label="오른쪽">▶</button>
+      <button class="ctrl-btn rotate" id="btnRotate" aria-label="회전">↻</button>
+      <button class="ctrl-btn wide drop" id="btnDrop">⏬ 하드 드롭</button>
+      <button class="ctrl-btn wide rotate" id="btnRotate2">↻ 블록 회전</button>
+    </section>
+
+    <!-- 1일 1회 알림 설정 -->
+    <section class="noti-card" aria-label="1일 1회 알림 설정">
+      <div class="noti-head">
+        <div class="noti-title">🔔 1일 1회 일일 알림</div>
+        <div style="display:flex; gap:6px;">
+          <button id="notiEnableBtn" class="btn primary">알림 허용</button>
+          <button id="notiTestBtn" class="btn">테스트</button>
+        </div>
+      </div>
+      <div class="noti-row">
+        <label for="notiTime">희망 시각 (매일 1회):</label>
+        <input id="notiTime" class="time-input" type="time" value="09:00" />
+        <span id="dailyGoalBadge" style="color:var(--accent); font-weight:600;"></span>
+      </div>
+      <div id="notiStatus" class="noti-status">
+        알림을 허용한 기기에 한해 매일 1회 오늘의 테트리스 알림을 보냅니다. (모바일에서 '홈 화면에 추가'하면 PWA로 설치됩니다.)
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // ==================== TETRIS ENGINE ====================
+    const COLS = 10, ROWS = 20, CELL = 24;
+    const COLORS = {
+      I: "#38bdf8", O: "#facc15", T: "#a855f7",
+      S: "#22c55e", Z: "#f43f5e", J: "#3b82f6", L: "#fb923c"
+    };
+    const SHAPES = {
+      I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+      O: [[1,1],[1,1]],
+      T: [[0,1,0],[1,1,1],[0,0,0]],
+      S: [[0,1,1],[1,1,0],[0,0,0]],
+      Z: [[1,1,0],[0,1,1],[0,0,0]],
+      J: [[1,0,0],[1,1,1],[0,0,0]],
+      L: [[0,0,1],[1,1,1],[0,0,0]]
+    };
+    const KEYS = Object.keys(SHAPES);
+
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const nextCanvas = document.getElementById("nextCanvas");
+    const nctx = nextCanvas.getContext("2d");
+    const overlay = document.getElementById("overlay");
+    const overlayTitle = document.getElementById("overlayTitle");
+    const overlayDesc = document.getElementById("overlayDesc");
+    const startBtn = document.getElementById("startBtn");
+
+    let grid = [], current = null, nextType = null;
+    let score = 0, lines = 0, level = 1;
+    let best = Number(localStorage.getItem("webapp01_tetris_best") || 0);
+    let running = false, paused = false, gameOver = false;
+    let dropAcc = 0, lastTs = 0, rafId = null;
+
+    document.getElementById("bestVal").textContent = best.toLocaleString("ko-KR");
+
+    const emptyGrid = () => Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+    const randType = () => KEYS[Math.floor(Math.random() * KEYS.length)];
+    const cloneMat = (m) => m.map((r) => [...r]);
+
+    function spawn(type) {
+      const mat = cloneMat(SHAPES[type]);
+      return {
+        type,
+        mat,
+        x: Math.floor((COLS - mat[0].length) / 2),
+        y: 0
+      };
+    }
+
+    function collides(piece, dx = 0, dy = 0, mat = piece.mat) {
+      for (let r = 0; r < mat.length; r++) {
+        for (let c = 0; c < mat[r].length; c++) {
+          if (!mat[r][c]) continue;
+          const nx = piece.x + c + dx;
+          const ny = piece.y + r + dy;
+          if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
+          if (ny >= 0 && grid[ny][nx]) return true;
+        }
+      }
+      return false;
+    }
+
+    function rotateMat(m) {
+      const N = m.length;
+      return Array.from({ length: N }, (_, r) => Array.from({ length: N }, (_, c) => m[N - 1 - c][r]));
+    }
+
+    function tryRotate() {
+      if (!running || paused || !current) return;
+      const rot = rotateMat(current.mat);
+      for (const kick of [0, -1, 1, -2, 2]) {
+        if (!collides(current, kick, 0, rot)) {
+          current.mat = rot;
+          current.x += kick;
+          draw();
+          return;
+        }
+      }
+    }
+
+    function move(dx, dy) {
+      if (!running || paused || !current) return false;
+      if (!collides(current, dx, dy)) {
+        current.x += dx;
+        current.y += dy;
+        draw();
+        return true;
+      }
+      return false;
+    }
+
+    function hardDrop() {
+      if (!running || paused || !current) return;
+      let dropped = 0;
+      while (!collides(current, 0, 1)) {
+        current.y++;
+        dropped++;
+      }
+      score += dropped * 2;
+      lockPiece();
+      draw();
+    }
+
+    function lockPiece() {
+      for (let r = 0; r < current.mat.length; r++) {
+        for (let c = 0; c < current.mat[r].length; c++) {
+          if (!current.mat[r][c]) continue;
+          const ny = current.y + r;
+          const nx = current.x + c;
+          if (ny >= 0 && ny < ROWS) grid[ny][nx] = current.type;
+        }
+      }
+      let cleared = 0;
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (grid[r].every((cell) => cell !== null)) {
+          grid.splice(r, 1);
+          grid.unshift(Array(COLS).fill(null));
+          cleared++;
+          r++;
+        }
+      }
+      if (cleared > 0) {
+        const pts = [0, 100, 300, 500, 800][cleared] || 800;
+        score += pts * level;
+        lines += cleared;
+        level = Math.floor(lines / 10) + 1;
+      }
+      updateStats();
+
+      current = spawn(nextType);
+      nextType = randType();
+      drawNext();
+      if (collides(current, 0, 0)) {
+        running = false;
+        gameOver = true;
+        overlayTitle.textContent = "GAME OVER";
+        overlayDesc.innerHTML = `최종 점수: <strong>${score.toLocaleString("ko-KR")}</strong>점 (최고 ${best.toLocaleString("ko-KR")}점)`;
+        startBtn.textContent = "다시 도전";
+        overlay.classList.remove("hidden");
+      }
+    }
+
+    function updateStats() {
+      if (score > best) {
+        best = score;
+        localStorage.setItem("webapp01_tetris_best", String(best));
+      }
+      document.getElementById("scoreVal").textContent = score.toLocaleString("ko-KR");
+      document.getElementById("bestVal").textContent = best.toLocaleString("ko-KR");
+      document.getElementById("levelVal").textContent = `${level} · ${lines}`;
+    }
+
+    function drawCell(context, x, y, color, size, alpha = 1) {
+      context.save();
+      context.globalAlpha = alpha;
+      context.fillStyle = color;
+      context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
+      context.fillStyle = "rgba(255,255,255,0.22)";
+      context.fillRect(x * size + 2, y * size + 2, size - 4, 3);
+      context.restore();
+    }
+
+    function draw() {
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Subtle grid
+      ctx.strokeStyle = "rgba(148,163,184,0.08)";
+      ctx.lineWidth = 1;
+      for (let x = 1; x < COLS; x++) {
+        ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, canvas.height); ctx.stroke();
+      }
+      for (let y = 1; y < ROWS; y++) {
+        ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(canvas.width, y * CELL); ctx.stroke();
+      }
+
+      // Placed blocks
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (grid[r][c]) drawCell(ctx, c, r, COLORS[grid[r][c]], CELL);
+        }
+      }
+
+      if (current) {
+        // Ghost piece
+        let gy = current.y;
+        while (!collides(current, 0, gy - current.y + 1)) gy++;
+        for (let r = 0; r < current.mat.length; r++) {
+          for (let c = 0; c < current.mat[r].length; c++) {
+            if (current.mat[r][c]) drawCell(ctx, current.x + c, gy + r, COLORS[current.type], CELL, 0.22);
+          }
+        }
+        // Active piece
+        for (let r = 0; r < current.mat.length; r++) {
+          for (let c = 0; c < current.mat[r].length; c++) {
+            if (current.mat[r][c]) drawCell(ctx, current.x + c, current.y + r, COLORS[current.type], CELL, 1);
+          }
+        }
+      }
+    }
+
+    function drawNext() {
+      nctx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+      if (!nextType) return;
+      const mat = SHAPES[nextType];
+      const sz = 16;
+      const ox = (nextCanvas.width - mat[0].length * sz) / 2;
+      const oy = (nextCanvas.height - mat.length * sz) / 2;
+      for (let r = 0; r < mat.length; r++) {
+        for (let c = 0; c < mat[r].length; c++) {
+          if (mat[r][c]) {
+            nctx.fillStyle = COLORS[nextType];
+            nctx.fillRect(ox + c * sz + 1, oy + r * sz + 1, sz - 2, sz - 2);
+          }
+        }
+      }
+    }
+
+    function tick(ts) {
+      if (!running || paused) return;
+      const dt = ts - lastTs;
+      lastTs = ts;
+      dropAcc += dt;
+      const interval = Math.max(110, 720 - (level - 1) * 55);
+      if (dropAcc >= interval) {
+        dropAcc = 0;
+        if (!move(0, 1)) lockPiece();
+      }
+      draw();
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function startGame() {
+      cancelAnimationFrame(rafId);
+      grid = emptyGrid();
+      score = 0; lines = 0; level = 1;
+      current = spawn(randType());
+      nextType = randType();
+      running = true; paused = false; gameOver = false;
+      dropAcc = 0; lastTs = performance.now();
+      overlay.classList.add("hidden");
+      document.getElementById("pauseBtn").textContent = "일시정지";
+      updateStats();
+      drawNext();
+      draw();
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function togglePause() {
+      if (!running || gameOver) return;
+      paused = !paused;
+      document.getElementById("pauseBtn").textContent = paused ? "계속하기" : "일시정지";
+      if (paused) {
+        overlayTitle.textContent = "PAUSED";
+        overlayDesc.textContent = "계속하려면 버튼을 누르세요.";
+        startBtn.textContent = "계속하기";
+        overlay.classList.remove("hidden");
+      } else {
+        overlay.classList.add("hidden");
+        lastTs = performance.now();
+        rafId = requestAnimationFrame(tick);
+      }
+    }
+
+    startBtn.addEventListener("click", () => {
+      if (paused && running) togglePause();
+      else startGame();
+    });
+    document.getElementById("restartBtn").addEventListener("click", startGame);
+    document.getElementById("pauseBtn").addEventListener("click", togglePause);
+
+    // Button Controls
+    document.getElementById("btnLeft").addEventListener("click", () => move(-1, 0));
+    document.getElementById("btnRight").addEventListener("click", () => move(1, 0));
+    document.getElementById("btnDown").addEventListener("click", () => { if (!move(0, 1)) lockPiece(); });
+    document.getElementById("btnRotate").addEventListener("click", tryRotate);
+    document.getElementById("btnRotate2").addEventListener("click", tryRotate);
+    document.getElementById("btnDrop").addEventListener("click", hardDrop);
+
+    // Keyboard Controls
+    window.addEventListener("keydown", (e) => {
+      if (!running || paused) return;
+      if (e.key === "ArrowLeft") { e.preventDefault(); move(-1, 0); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); move(1, 0); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); if (!move(0, 1)) lockPiece(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); tryRotate(); }
+      else if (e.key === " ") { e.preventDefault(); hardDrop(); }
+      else if (e.key.toLowerCase() === "p") { togglePause(); }
+    });
+
+    // Touch Swipe on Board
+    let tStart = null;
+    const boardWrap = document.getElementById("boardWrap");
+    boardWrap.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1) return;
+      tStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+    }, { passive: true });
+    boardWrap.addEventListener("touchend", (e) => {
+      if (!tStart || !running || paused) return;
+      const dx = e.changedTouches[0].clientX - tStart.x;
+      const dy = e.changedTouches[0].clientY - tStart.y;
+      const adx = Math.abs(dx), ady = Math.abs(dy);
+      if (adx < 18 && ady < 18) {
+        tryRotate();
+      } else if (adx > ady) {
+        move(dx > 0 ? 1 : -1, 0);
+      } else if (dy > 45) {
+        hardDrop();
+      } else if (dy > 18) {
+        if (!move(0, 1)) lockPiece();
+      }
+      tStart = null;
+    }, { passive: true });
+
+    draw();
+
+    // ==================== 1일 1회 알림 (PWA + Service Worker) ====================
+    const elNotiBtn = document.getElementById("notiEnableBtn");
+    const elNotiTest = document.getElementById("notiTestBtn");
+    const elNotiTime = document.getElementById("notiTime");
+    const elNotiStatus = document.getElementById("notiStatus");
+    const elGoalBadge = document.getElementById("dailyGoalBadge");
+
+    let swReg = null;
+    let dailyNotice = null;
+    elNotiTime.value = localStorage.getItem("webapp01_noti_time") || "09:00";
+
+    async function loadDailyNotice() {
+      try {
+        const res = await fetch("./data/daily_notice.json", { cache: "no-store" });
+        if (res.ok) {
+          dailyNotice = await res.json();
+          if (dailyNotice.targetScore) {
+            elGoalBadge.textContent = `오늘 목표 ${Number(dailyNotice.targetScore).toLocaleString("ko-KR")}점`;
+          }
+        }
+      } catch (_) {}
+    }
+
+    function updateNotiUI() {
+      if (!("Notification" in window)) {
+        elNotiBtn.disabled = true;
+        elNotiBtn.textContent = "미지원";
+        elNotiStatus.textContent = "이 브라우저는 웹 알림 API를 지원하지 않습니다. (iOS Safari는 '홈 화면에 추가' 후 지원)";
+        return;
+      }
+      const perm = Notification.permission;
+      const enabled = localStorage.getItem("webapp01_noti_enabled") === "1";
+      if (perm === "granted" && enabled) {
+        elNotiBtn.textContent = "알림 켜짐 ✓";
+        elNotiBtn.className = "btn ok";
+        elNotiStatus.textContent = `매일 ${elNotiTime.value} 이후 1일 1회 알림이 예약되어 있습니다. (최종 발송일: ${localStorage.getItem("webapp01_noti_last_date") || "없음"})`;
+      } else if (perm === "denied") {
+        elNotiBtn.textContent = "차단됨";
+        elNotiBtn.className = "btn";
+        elNotiStatus.textContent = "브라우저 설정에서 알림이 차단되어 있습니다. 사이트 설정에서 알림을 허용해 주세요.";
+      } else {
+        elNotiBtn.textContent = "알림 허용";
+        elNotiBtn.className = "btn primary";
+        elNotiStatus.textContent = "알림을 허용한 기기에 한해 매일 1회 오늘의 테트리스 알림을 보냅니다.";
+      }
+    }
+
+    async function registerPeriodicSync() {
+      if (!swReg || !("periodicSync" in swReg)) return false;
+      try {
+        const status = await navigator.permissions.query({ name: "periodic-background-sync" });
+        if (status.state === "granted") {
+          await swReg.periodicSync.register("daily-tetris-reminder", {
+            minInterval: 24 * 60 * 60 * 1000 // 1일 1회
+          });
+          return true;
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    function triggerNotification(payload = null) {
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      const notice = payload || dailyNotice || {
+        date: new Date().toISOString().slice(0, 10),
+        title: "🧱 오늘의 테트리스 한 판!",
+        body: "오늘의 최고 점수에 도전해 보세요!"
+      };
+      if (swReg && swReg.active) {
+        swReg.active.postMessage({ type: "SHOW_DAILY_NOTICE", payload: notice });
+      } else {
+        new Notification(notice.title, { body: notice.body });
+      }
+    }
+
+    function checkDailySchedule() {
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      if (localStorage.getItem("webapp01_noti_enabled") !== "1") return;
+      const now = new Date();
+      const today = now.toISOString().slice(0, 10);
+      if (localStorage.getItem("webapp01_noti_last_date") === today) return;
+
+      const [hh, mm] = (elNotiTime.value || "09:00").split(":").map(Number);
+      const curMin = now.getHours() * 60 + now.getMinutes();
+      const targetMin = hh * 60 + mm;
+      if (curMin >= targetMin) {
+        localStorage.setItem("webapp01_noti_last_date", today);
+        triggerNotification();
+        updateNotiUI();
+      }
+    }
+
+    elNotiBtn.addEventListener("click", async () => {
+      if (!("Notification" in window)) return;
+      if (Notification.permission === "granted" && localStorage.getItem("webapp01_noti_enabled") === "1") {
+        localStorage.setItem("webapp01_noti_enabled", "0");
+        updateNotiUI();
+        return;
+      }
+      const res = await Notification.requestPermission();
+      if (res === "granted") {
+        localStorage.setItem("webapp01_noti_enabled", "1");
+        await registerPeriodicSync();
+        checkDailySchedule();
+      }
+      updateNotiUI();
+    });
+
+    elNotiTime.addEventListener("change", () => {
+      localStorage.setItem("webapp01_noti_time", elNotiTime.value);
+      updateNotiUI();
+      checkDailySchedule();
+    });
+
+    elNotiTest.addEventListener("click", async () => {
+      if (!("Notification" in window)) return;
+      if (Notification.permission !== "granted") {
+        const res = await Notification.requestPermission();
+        if (res !== "granted") { updateNotiUI(); return; }
+        localStorage.setItem("webapp01_noti_enabled", "1");
+      }
+      triggerNotification({
+        date: "test-" + Date.now(),
+        title: (dailyNotice && dailyNotice.title) || "🧱 테트리스 테스트 알림",
+        body: (dailyNotice && dailyNotice.body) || "알림이 정상적으로 작동합니다! 매일 1회 보내드립니다."
+      });
+      updateNotiUI();
+    });
+
+    async function initPWA() {
+      await loadDailyNotice();
+      if ("serviceWorker" in navigator) {
+        try {
+          swReg = await navigator.serviceWorker.register("./sw.js");
+          if (Notification.permission === "granted" && localStorage.getItem("webapp01_noti_enabled") === "1") {
+            await registerPeriodicSync();
+          }
+        } catch (_) {}
+      }
+      updateNotiUI();
+      checkDailySchedule();
+      setInterval(checkDailySchedule, 60 * 1000);
+    }
+
+    initPWA();
+  </script>
+</body>
+</html>

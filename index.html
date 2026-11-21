@@ -338,10 +338,50 @@
       }
     }
 
+    function localIsoDate(offsetDays = 0) {
+      const d = new Date();
+      d.setDate(d.getDate() + offsetDays);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+
+    function loadDailyScores() {
+      try {
+        return JSON.parse(localStorage.getItem("webapp01_tetris_daily_scores") || "{}");
+      } catch (_) {
+        return {};
+      }
+    }
+
+    async function syncUserStatsToCache(dailyScores, bestScore) {
+      if (!("caches" in window)) return;
+      try {
+        const cache = await caches.open("tetris-user-stats-v1");
+        await cache.put(
+          "./user-stats.json",
+          new Response(JSON.stringify({ dailyScores, best: bestScore }), {
+            headers: { "Content-Type": "application/json" }
+          })
+        );
+      } catch (_) {}
+    }
+
     function updateStats() {
+      let changed = false;
       if (score > best) {
         best = score;
         localStorage.setItem("webapp01_tetris_best", String(best));
+        changed = true;
+      }
+      const today = localIsoDate(0);
+      const dailyScores = loadDailyScores();
+      if (score > (dailyScores[today] || 0)) {
+        dailyScores[today] = score;
+        localStorage.setItem("webapp01_tetris_daily_scores", JSON.stringify(dailyScores));
+        changed = true;
+      }
+      if (changed) {
+        syncUserStatsToCache(dailyScores, best);
+        if (typeof refreshDailyGoalBadge === "function") refreshDailyGoalBadge();
       }
       document.getElementById("scoreVal").textContent = score.toLocaleString("ko-KR");
       document.getElementById("bestVal").textContent = best.toLocaleString("ko-KR");
@@ -523,16 +563,69 @@
     let dailyNotice = null;
     elNotiTime.value = localStorage.getItem("webapp01_noti_time") || "09:00";
 
+    function buildPersonalizedNotice() {
+      const today = localIsoDate(0);
+      const yesterday = localIsoDate(-1);
+      const scores = loadDailyScores();
+      const fmt = (n) => Number(n).toLocaleString("ko-KR");
+
+      if (scores[yesterday] > 0) {
+        const prev = scores[yesterday];
+        const target = Math.ceil(prev * 1.2);
+        return {
+          date: today,
+          targetScore: target,
+          badgeText: `오늘 목표 ${fmt(target)}점 (어제 ${fmt(prev)}점 +20%)`,
+          title: `🧱 오늘의 테트리스 목표: ${fmt(target)}점 (+20%)`,
+          body: `어제 점수 ${fmt(prev)}점에서 20% 올려야 합니다! 오늘은 ${fmt(target)}점에 도전해 보세요.`
+        };
+      }
+
+      const prevDates = Object.keys(scores).filter((d) => d < today && scores[d] > 0).sort();
+      if (prevDates.length > 0) {
+        const lastDate = prevDates[prevDates.length - 1];
+        const prev = scores[lastDate];
+        const target = Math.ceil(prev * 1.2);
+        return {
+          date: today,
+          targetScore: target,
+          badgeText: `오늘 목표 ${fmt(target)}점 (최근 ${fmt(prev)}점 +20%)`,
+          title: `🧱 오늘의 테트리스 목표: ${fmt(target)}점 (+20%)`,
+          body: `최근 기록(${lastDate}, ${fmt(prev)}점)에서 20% 올려야 합니다! 오늘은 ${fmt(target)}점에 도전해 보세요.`
+        };
+      }
+
+      if (best > 0) {
+        const target = Math.ceil(best * 1.2);
+        return {
+          date: today,
+          targetScore: target,
+          badgeText: `내일 목표 ${fmt(target)}점 (현재 ${fmt(best)}점 +20%)`,
+          title: `🧱 오늘의 테트리스 목표: ${fmt(target)}점 (+20%)`,
+          body: `현재 최고 점수 ${fmt(best)}점에서 20% 올려서 ${fmt(target)}점에 도전해 보세요!`
+        };
+      }
+
+      return {
+        date: (dailyNotice && dailyNotice.date) || today,
+        targetScore: (dailyNotice && dailyNotice.targetScore) || 0,
+        badgeText: "첫 판 플레이 시 내일 +20% 목표 설정",
+        title: (dailyNotice && dailyNotice.title) || "🧱 오늘의 테트리스 첫 도전!",
+        body: "오늘 첫 점수를 기록하면 내일부터 어제 점수보다 20% 높은 목표 알림을 보내드립니다."
+      };
+    }
+
+    function refreshDailyGoalBadge() {
+      const n = buildPersonalizedNotice();
+      elGoalBadge.textContent = n.badgeText;
+    }
+
     async function loadDailyNotice() {
       try {
         const res = await fetch("./data/daily_notice.json", { cache: "no-store" });
-        if (res.ok) {
-          dailyNotice = await res.json();
-          if (dailyNotice.targetScore) {
-            elGoalBadge.textContent = `오늘 목표 ${Number(dailyNotice.targetScore).toLocaleString("ko-KR")}점`;
-          }
-        }
+        if (res.ok) dailyNotice = await res.json();
       } catch (_) {}
+      refreshDailyGoalBadge();
     }
 
     function updateNotiUI() {
@@ -547,7 +640,7 @@
       if (perm === "granted" && enabled) {
         elNotiBtn.textContent = "알림 켜짐 ✓";
         elNotiBtn.className = "btn ok";
-        elNotiStatus.textContent = `매일 ${elNotiTime.value} 이후 1일 1회 알림이 예약되어 있습니다. (최종 발송일: ${localStorage.getItem("webapp01_noti_last_date") || "없음"})`;
+        elNotiStatus.textContent = `매일 ${elNotiTime.value} 이후 1일 1회 '어제 점수 +20%' 목표 알림이 발송됩니다. (최종 발송일: ${localStorage.getItem("webapp01_noti_last_date") || "없음"})`;
       } else if (perm === "denied") {
         elNotiBtn.textContent = "차단됨";
         elNotiBtn.className = "btn";
@@ -555,7 +648,7 @@
       } else {
         elNotiBtn.textContent = "알림 허용";
         elNotiBtn.className = "btn primary";
-        elNotiStatus.textContent = "알림을 허용한 기기에 한해 매일 1회 오늘의 테트리스 알림을 보냅니다.";
+        elNotiStatus.textContent = "알림을 허용한 기기에 한해 매일 1회 어제 점수에서 20% 올린 목표 알림을 보냅니다.";
       }
     }
 
@@ -575,11 +668,7 @@
 
     function triggerNotification(payload = null) {
       if (!("Notification" in window) || Notification.permission !== "granted") return;
-      const notice = payload || dailyNotice || {
-        date: new Date().toISOString().slice(0, 10),
-        title: "🧱 오늘의 테트리스 한 판!",
-        body: "오늘의 최고 점수에 도전해 보세요!"
-      };
+      const notice = payload || buildPersonalizedNotice();
       if (swReg && swReg.active) {
         swReg.active.postMessage({ type: "SHOW_DAILY_NOTICE", payload: notice });
       } else {
@@ -591,7 +680,7 @@
       if (!("Notification" in window) || Notification.permission !== "granted") return;
       if (localStorage.getItem("webapp01_noti_enabled") !== "1") return;
       const now = new Date();
-      const today = now.toISOString().slice(0, 10);
+      const today = localIsoDate(0);
       if (localStorage.getItem("webapp01_noti_last_date") === today) return;
 
       const [hh, mm] = (elNotiTime.value || "09:00").split(":").map(Number);
@@ -633,15 +722,17 @@
         if (res !== "granted") { updateNotiUI(); return; }
         localStorage.setItem("webapp01_noti_enabled", "1");
       }
+      const personalized = buildPersonalizedNotice();
       triggerNotification({
         date: "test-" + Date.now(),
-        title: (dailyNotice && dailyNotice.title) || "🧱 테트리스 테스트 알림",
-        body: (dailyNotice && dailyNotice.body) || "알림이 정상적으로 작동합니다! 매일 1회 보내드립니다."
+        title: personalized.title,
+        body: personalized.body
       });
       updateNotiUI();
     });
 
     async function initPWA() {
+      await syncUserStatsToCache(loadDailyScores(), best);
       await loadDailyNotice();
       if ("serviceWorker" in navigator) {
         try {

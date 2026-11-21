@@ -1,0 +1,30 @@
+name: Daily Tetris Notification Refresh
+
+on:
+  schedule:
+    # 매일 오전 09:00 KST (UTC 00:00) 1일 1회 실행
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-notice:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Refresh daily_notice.json
+        run: python3 update_daily_notice.py
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet data/daily_notice.json; then
+            git add data/daily_notice.json
+            git commit -m "chore: refresh daily Tetris notification ($(date -u +'%Y-%m-%d'))"
+            git push
+          fi
